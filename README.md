@@ -1,5 +1,7 @@
 # Xiaomi TV Remote
 
+> **Español** | [English](README.en.md)
+
 Mando remoto por Wi-Fi para televisores **Xiaomi con Android TV / Google TV**.
 Funciona desde el navegador del PC, del iPhone o de cualquier móvil, sin la app
 oficial, sin mando físico y sin ADB.
@@ -11,6 +13,12 @@ Probado con una **Xiaomi Mi TV (MiTV-MSSP3)**. Usa el mismo protocolo que la app
 Google TV (puertos **6466/6467**), así que debería funcionar con otros
 televisores Android TV / Google TV. No funciona con televisores que no sean
 Android/Google TV (Samsung Tizen, LG webOS, etc.).
+
+<!--
+Captura de pantalla: guarda la imagen en docs/screenshot.png y descomenta
+la línea siguiente.
+![Mando web](docs/screenshot.png)
+-->
 
 ## Características
 
