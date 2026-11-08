@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Lanzador del mando de TV
+cd "$(dirname "$(readlink -f "$0")")" || exit 1
+exec ./.venv/bin/python tvremote.py "$@"

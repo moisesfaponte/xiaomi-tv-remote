@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Abre el mando como una app de escritorio (ventana sin barra de navegador).
+# Arranca el servidor web si no está ya en marcha.
+set -u
+
+DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+PORT="${TVWEB_PORT:-8765}"
+URL="http://127.0.0.1:${PORT}/"
+LOG="${TMPDIR:-/tmp}/tvweb.log"
+
+port_open() {
+  (exec 3<>"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null
+}
+
+if ! port_open; then
+  cd "$DIR" || exit 1
+  nohup ./.venv/bin/python webremote.py --port "$PORT" >>"$LOG" 2>&1 &
+  for _ in $(seq 1 60); do
+    port_open && break
+    sleep 0.25
+  done
+fi
+
+if ! port_open; then
+  echo "No se pudo arrancar el servidor. Revisa $LOG" >&2
+  exit 1
+fi
+
+BROWSER="$(command -v chromium || command -v chromium-browser || command -v google-chrome-stable || command -v google-chrome || command -v brave-browser || true)"
+
+if [ -n "$BROWSER" ]; then
+  exec "$BROWSER" \
+    --app="$URL" \
+    --class=MiTVRemote \
+    --window-size=420,940 \
+    --no-first-run \
+    --no-default-browser-check
+else
+  exec xdg-open "$URL"
+fi
