@@ -171,6 +171,14 @@ journalctl -u tvremote -f      # follow the logs
 
 After changing the code, `systemctl restart tvremote` applies the changes.
 
+### PC suspend
+
+While the PC is suspended (or hibernating) the service is frozen: no processes
+and no network, so the remote does not respond. On resume the server notices
+within ~1 second, closes the stale connection and reconnects to the TV by
+itself; nothing needs to be restarted. If the PC is fully powered off, the
+service starts again at boot (if you enabled it).
+
 ### Application menu shortcut (optional)
 
 ```bash

@@ -37,6 +37,15 @@ CONNECT_TIMEOUT = 8.0
 MIN_SCAN_INTERVAL = 8.0
 RETRY_FIRST_DELAY = 5.0
 RETRY_MAX_DELAY = 30.0
+WATCH_INTERVAL = 1.0
+RESUME_GAP = 10.0
+
+
+def boot_time() -> float:
+    """Reloj que sigue avanzando durante la suspensión del equipo (Linux)."""
+    if hasattr(time, "CLOCK_BOOTTIME"):
+        return time.clock_gettime(time.CLOCK_BOOTTIME)
+    return time.monotonic()
 
 
 class TvController:
@@ -66,7 +75,9 @@ class TvController:
         self._lock: asyncio.Lock | None = None
         self._scan_lock: asyncio.Lock | None = None
         self._retry_task: asyncio.Task | None = None
+        self._watch_task: asyncio.Task | None = None
         self._last_scan = 0.0
+        self._last_beat = boot_time()
 
     # ------------------------------------------------------------ conexión --
     def _attach(self, remote: AndroidTVRemote) -> None:
@@ -131,6 +142,28 @@ class TvController:
                 remote.disconnect()
             except Exception:  # noqa: BLE001
                 pass
+
+    # --------------------------------------------------------- suspensión --
+    def check_resume(self) -> bool:
+        """Si el equipo estuvo suspendido, tira la conexión vieja y reconecta."""
+        now = boot_time()
+        gap = now - self._last_beat
+        if gap <= RESUME_GAP:
+            return False
+
+        self._last_beat = now
+        print(f"[tv] equipo reanudado tras {gap:.0f}s suspendido; reconectando")
+        self.state["connected"] = False
+        self.state["error"] = "reconectando tras suspensión…"
+        self._drop()
+        self._start_rediscovery()
+        return True
+
+    async def _suspend_watchdog(self) -> None:
+        while True:
+            await asyncio.sleep(WATCH_INTERVAL)
+            if not self.check_resume():
+                self._last_beat = boot_time()
 
     # ---------------------------------------------------------- descubrir --
     async def _discover_once(self, force: bool = False) -> dict | None:
@@ -242,6 +275,9 @@ class TvController:
 
     # ------------------------------------------------------------ arranque --
     async def start(self) -> None:
+        if self._watch_task is None or self._watch_task.done():
+            self._last_beat = boot_time()
+            self._watch_task = asyncio.create_task(self._suspend_watchdog())
         try:
             await self._ensure()
             print(f"[tv] conectado a {self.host}")
@@ -255,6 +291,7 @@ class TvController:
 
     # ------------------------------------------------------------ comandos --
     async def _ensure(self) -> AndroidTVRemote:
+        self.check_resume()
         if self.remote is not None and self.state["connected"]:
             return self.remote
         if self.remote is not None:
@@ -330,6 +367,7 @@ async def index(_request: web.Request) -> web.Response:
 
 async def api_status(request: web.Request) -> web.Response:
     controller: TvController = request.app["controller"]
+    controller.check_resume()
     return web.json_response({"ok": True, **controller.state})
 
 
@@ -463,6 +501,8 @@ async def on_cleanup(app: web.Application) -> None:
     controller: TvController = app["controller"]
     if controller._retry_task and not controller._retry_task.done():
         controller._retry_task.cancel()
+    if controller._watch_task and not controller._watch_task.done():
+        controller._watch_task.cancel()
     controller._drop()
 
 

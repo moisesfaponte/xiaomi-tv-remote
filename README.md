@@ -171,6 +171,14 @@ journalctl -u tvremote -f      # ver los mensajes en directo
 
 Si cambias el código, `systemctl restart tvremote` aplica los cambios.
 
+### Suspensión del PC
+
+Mientras el PC está suspendido (o hibernando) el servicio queda congelado: no
+hay procesos ni red, así que el mando no responde. Al reanudar, el servidor lo
+detecta en ~1 segundo, cierra la conexión vieja y reconecta solo con la TV; no
+hay que reiniciar nada. Si el equipo se apaga del todo, el servicio arranca
+solo al encenderlo (si lo habilitaste).
+
 ### Acceso directo en el menú de aplicaciones (opcional)
 
 ```bash
