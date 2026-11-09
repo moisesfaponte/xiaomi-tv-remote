@@ -10,6 +10,7 @@ su MAC/nombre y actualiza la IP automáticamente.
 import argparse
 import asyncio
 import json
+import math
 import socket
 import sys
 import time
@@ -44,6 +45,9 @@ RESUME_GAP = 10.0
 WAKE_TIMEOUT = 45.0
 WAKE_POLL_INTERVAL = 2.0
 POWER_COOLDOWN = 2.0
+BOOT_TIMEOUT = 12.0
+EVENT_HEARTBEAT = 15.0
+MAX_SLEEP_MINUTES = 720
 
 
 class PowerBusy(Exception):
@@ -81,6 +85,7 @@ class TvController:
             "waking": False,
             "wol_mac": self.wol_mac,
             "last_scan": None,
+            "sleep_until": None,
         }
 
         self.remote: AndroidTVRemote | None = None
@@ -89,6 +94,9 @@ class TvController:
         self._power_lock: asyncio.Lock | None = None
         self._retry_task: asyncio.Task | None = None
         self._watch_task: asyncio.Task | None = None
+        self._sleep_task: asyncio.Task | None = None
+        self._subscribers: set[asyncio.Queue] = set()
+        self._last_payload: str | None = None
         self._last_scan = 0.0
         self._last_power = 0.0
         self._last_beat = boot_time()
@@ -113,6 +121,91 @@ class TvController:
         remote.add_volume_info_updated_callback(
             lambda info: self.state.__setitem__("volume", dict(info))
         )
+
+    # --------------------------------------------------- estado en vivo --
+    def status_payload(self) -> dict:
+        """Estado para la web, con la cuenta atrás del temporizador ya resuelta."""
+        payload = dict(self.state)
+        until = payload.get("sleep_until")
+        payload["sleep_remaining"] = (
+            max(0, round(until - time.time())) if until is not None else None
+        )
+        return payload
+
+    def subscribe(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        self._subscribers.discard(queue)
+
+    def _pump_state(self) -> None:
+        """Envía el estado a las webs conectadas solo si ha cambiado."""
+        if not self._subscribers:
+            return
+        payload = json.dumps(self.status_payload())
+        if payload == self._last_payload:
+            return
+        self._last_payload = payload
+        for queue in list(self._subscribers):
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                pass
+
+    # ------------------------------------------------------ temporizador --
+    def cancel_sleep(self, reason: str = "") -> bool:
+        """Cancela el temporizador sin enviar nada a la TV."""
+        task, self._sleep_task = self._sleep_task, None
+        had_timer = self.state.get("sleep_until") is not None
+        self.state["sleep_until"] = None
+        if task is not None and not task.done():
+            task.cancel()
+        if had_timer and reason:
+            print(f"[tv] temporizador cancelado ({reason})")
+        return had_timer
+
+    async def set_sleep(self, minutes: float | None) -> dict:
+        """Programa el apagado (minutos) o lo cancela con None/0."""
+        self.cancel_sleep()
+        if not minutes or minutes <= 0:
+            return {"sleep_until": None}
+
+        minutes = min(float(minutes), MAX_SLEEP_MINUTES)
+        self.state["sleep_until"] = time.time() + minutes * 60
+        self._sleep_task = asyncio.create_task(self._sleep_worker())
+        pretty = int(minutes) if minutes == int(minutes) else minutes
+        print(f"[tv] temporizador: apagado en {pretty} min")
+        return {
+            "sleep_until": self.state["sleep_until"],
+            "sleep_remaining": int(minutes * 60),
+        }
+
+    async def _sleep_worker(self) -> None:
+        try:
+            while True:
+                until = self.state.get("sleep_until")
+                if until is None:
+                    return
+                remaining = until - time.time()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(remaining, 5.0))
+
+            if self.state.get("is_on") is True:
+                try:
+                    await self.send_key("POWER")
+                    print("[tv] temporizador: TV apagada")
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[tv] temporizador: no se pudo apagar: {exc}")
+            else:
+                # Si ya está apagada, un POWER la encendería.
+                print("[tv] temporizador: la TV no está encendida; no se envía POWER")
+        finally:
+            self.state["sleep_until"] = None
+            if self._sleep_task is asyncio.current_task():
+                self._sleep_task = None
 
     def _save_host(self, host: str) -> None:
         cfg = load_config()
@@ -208,6 +301,15 @@ class TvController:
         print(f"[tv] TV disponible en {self.host}")
         return True
 
+    async def _wait_on(self, timeout: float) -> bool:
+        """Espera a que la TV confirme que está encendida (is_on == True)."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.state["is_on"] is True:
+                return True
+            await asyncio.sleep(0.5)
+        return self.state["is_on"] is True
+
     async def _wait_connected(self, timeout: float) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -242,6 +344,7 @@ class TvController:
                     try:
                         await self.send_key("POWER")
                         print("[tv] POWER enviado (encendida -> standby)")
+                        self.cancel_sleep("botón Power")
                         return {"action": "sent", "state": "off"}
                     except (
                         CannotConnect,
@@ -258,6 +361,7 @@ class TvController:
             if await self._try_connect_quiet():
                 await self.send_key("POWER")
                 print("[tv] POWER enviado (standby -> encendida)")
+                self.cancel_sleep("botón Power")
                 return {"action": "sent", "state": "on"}
 
             # 3) No responde: la damos por apagada y enviamos Wake-on-LAN.
@@ -272,6 +376,7 @@ class TvController:
                     + (f" a {', '.join(sent_to)}" if sent_to else " (sin MAC válida)")
                 )
                 if await self._wait_connected(WAKE_TIMEOUT):
+                    self.cancel_sleep("botón Power")
                     return {"action": "woke", "state": "on"}
                 self.state["error"] = (
                     "no se pudo encender la TV; comprueba que no esté desenchufada"
@@ -301,6 +406,7 @@ class TvController:
             await asyncio.sleep(WATCH_INTERVAL)
             if not self.check_resume():
                 self._last_beat = boot_time()
+            self._pump_state()
 
     # ---------------------------------------------------------- descubrir --
     async def _discover_once(self, force: bool = False) -> dict | None:
@@ -490,6 +596,79 @@ class TvController:
     async def launch_app(self, app: str) -> None:
         await self._run(lambda remote: remote.send_launch_app_command(app))
 
+    async def _wake_from_standby(self) -> str:
+        """Con la TV conectada: si sigue en standby, un POWER la enciende."""
+        for _ in range(6):
+            if self.state["is_on"] is not None:
+                break
+            await asyncio.sleep(0.5)
+        if self.state["is_on"] is False:
+            self.state["waking"] = True
+            try:
+                await self.send_key("POWER")
+                await self._wait_on(BOOT_TIMEOUT)
+            finally:
+                self.state["waking"] = False
+            return "sent"
+        return "launched"
+
+    async def launch_app_waking(self, app: str) -> dict:
+        """Abre una app encendiendo antes la TV si hace falta (un solo toque)."""
+        if self._power_lock is None:
+            self._power_lock = asyncio.Lock()
+        if self._power_lock.locked():
+            raise PowerBusy("La TV se está encendiendo o apagando")
+
+        async with self._power_lock:
+            self.check_resume()
+            action = "launched"
+            ready = False
+
+            # La conexión puede seguir "viva" un rato tras apagar la TV:
+            # comprobar el puerto antes de fiarse de ella.
+            if self.remote is not None and self.state["connected"]:
+                if await port_open(self.host, REMOTE_PORT, timeout=0.6):
+                    ready = True
+                else:
+                    print("[tv] conexión de standby caducada; se descarta")
+                    self._drop()
+
+            if ready or await self._try_connect_quiet():
+                action = await self._wake_from_standby()
+            else:
+                self.state["waking"] = True
+                self.state["error"] = None
+                try:
+                    sent_to = await asyncio.to_thread(
+                        send_wol, self._wol_macs(), self.host, self.subnet
+                    )
+                    print(
+                        "[tv] Wake-on-LAN enviado"
+                        + (
+                            f" a {', '.join(sent_to)}"
+                            if sent_to
+                            else " (sin MAC válida)"
+                        )
+                    )
+                    if not await self._wait_connected(WAKE_TIMEOUT):
+                        self.state["error"] = (
+                            "no se pudo encender la TV; "
+                            "comprueba que no esté desenchufada"
+                        )
+                        raise CannotConnect("no se pudo encender la TV")
+                    await self._wait_on(BOOT_TIMEOUT)
+                finally:
+                    self.state["waking"] = False
+                action = "woke"
+
+            if action != "launched":
+                # Deja que el lanzador termine de arrancar antes de abrir la app.
+                await asyncio.sleep(0.8)
+
+            await self._run(lambda remote: remote.send_launch_app_command(app))
+            print(f"[tv] app abierta: {app} ({action})")
+            return {"action": action, "app": app}
+
 
 # --------------------------------------------------------------------- API --
 def json_error(message: str, status: int = 400) -> web.Response:
@@ -505,7 +684,7 @@ async def index(_request: web.Request) -> web.Response:
 async def api_status(request: web.Request) -> web.Response:
     controller: TvController = request.app["controller"]
     controller.check_resume()
-    return web.json_response({"ok": True, **controller.state})
+    return web.json_response({"ok": True, **controller.status_payload()})
 
 
 async def api_power(request: web.Request) -> web.Response:
@@ -580,12 +759,73 @@ async def api_app(request: web.Request) -> web.Response:
         return json_error("URL de app inválida")
 
     try:
-        await controller.launch_app(app)
+        result = await controller.launch_app_waking(app)
+    except PowerBusy as exc:
+        return json_error(str(exc), 409)
     except InvalidAuth:
         return json_error("No emparejado. Ejecuta ./tv pair en el PC.", 409)
     except (CannotConnect, ConnectionClosed, OSError, asyncio.TimeoutError) as exc:
-        return json_error(f"TV no disponible: {exc}", 502)
-    return web.json_response({"ok": True})
+        return json_error(f"No se pudo abrir la app: {exc}", 502)
+    return web.json_response({"ok": True, **result})
+
+
+async def api_sleep(request: web.Request) -> web.Response:
+    controller: TvController = request.app["controller"]
+    try:
+        data = await request.json()
+    except json.JSONDecodeError:
+        return json_error("JSON inválido")
+
+    raw = data.get("minutes")
+    if raw is None:
+        minutes = None
+    else:
+        try:
+            minutes = float(raw)
+        except (TypeError, ValueError):
+            return json_error("Minutos inválidos")
+        if not math.isfinite(minutes) or minutes < 0 or minutes > MAX_SLEEP_MINUTES:
+            return json_error(f"Minutos fuera de rango (0–{MAX_SLEEP_MINUTES})")
+
+    result = await controller.set_sleep(minutes)
+    return web.json_response({"ok": True, **result})
+
+
+async def api_events(request: web.Request) -> web.StreamResponse:
+    """Estado en vivo por Server-Sent Events (con latido cada 15 s)."""
+    controller: TvController = request.app["controller"]
+    controller.check_resume()
+
+    response = web.StreamResponse(
+        headers={
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+    await response.prepare(request)
+
+    queue = controller.subscribe()
+    try:
+        initial = json.dumps(controller.status_payload())
+        await response.write(f"data: {initial}\n\n".encode("utf-8"))
+        while True:
+            try:
+                payload = await asyncio.wait_for(
+                    queue.get(), timeout=EVENT_HEARTBEAT
+                )
+            except asyncio.TimeoutError:
+                await response.write(b": latido\n\n")
+                continue
+            await response.write(f"data: {payload}\n\n".encode("utf-8"))
+    except (asyncio.CancelledError, ConnectionResetError, ConnectionClosed):
+        pass
+    except OSError:
+        pass
+    finally:
+        controller.unsubscribe(queue)
+    return response
 
 
 async def api_discover(request: web.Request) -> web.Response:
@@ -655,6 +895,8 @@ async def on_cleanup(app: web.Application) -> None:
         controller._retry_task.cancel()
     if controller._watch_task and not controller._watch_task.done():
         controller._watch_task.cancel()
+    if controller._sleep_task and not controller._sleep_task.done():
+        controller._sleep_task.cancel()
     controller._drop()
 
 
@@ -666,7 +908,9 @@ def build_app(controller: TvController) -> web.Application:
     app.router.add_get("/sw.js", service_worker)
     app.router.add_get("/icons/{name}", icon)
     app.router.add_get("/api/status", api_status)
+    app.router.add_get("/api/events", api_events)
     app.router.add_post("/api/power", api_power)
+    app.router.add_post("/api/sleep", api_sleep)
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/text", api_text)
     app.router.add_post("/api/app", api_app)

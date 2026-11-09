@@ -67,7 +67,8 @@
     justify-content: space-between;
     padding: 2px 4px 0;
   }
-  .device { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .device { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+  .device > div { min-width: 0; flex: 1; }
   .dot {
     width: 9px; height: 9px; border-radius: 50%;
     background: var(--muted);
@@ -92,6 +93,50 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   .sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .sub.now {
+    font-size: 10px; color: #a9aeb8; letter-spacing: .01em;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 150px;
+  }
+  .sub.now:empty { display: none; }
+
+  /* ---------- temporizador ---------- */
+  .sleepbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin: 12px 2px 0; padding: 7px 8px 7px 12px;
+    border: 1px solid #3a3a42; border-radius: 12px;
+    background: linear-gradient(180deg, #232329, #1b1b20);
+    color: #d9dce2; font-size: 12px;
+  }
+  .sleepbar button {
+    border: 0; background: #33333c; color: #fff; border-radius: 8px;
+    padding: 5px 10px; font-size: 11px; cursor: pointer;
+  }
+  .sleepbar button:active { background: #44444f; }
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .55); z-index: 30; }
+  .sheet {
+    position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    width: min(92vw, 360px); z-index: 31;
+    background: #1c1c21; border: 1px solid #46464f; border-radius: 22px;
+    padding: 18px; box-shadow: 0 24px 60px rgba(0, 0, 0, .6);
+  }
+  .sheet h2 { margin: 0 0 4px; font-size: 15px; letter-spacing: .01em; }
+  .sheet p { margin: 0 0 14px; font-size: 12px; color: var(--muted); }
+  .sheet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sheet-grid button {
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, #2f2f37, #232329);
+    border-radius: 12px; padding: 11px 6px; font-size: 13px; cursor: pointer;
+  }
+  .sheet-grid button:active { transform: scale(.96); background: #3a3a44; }
+  .sheet-close {
+    width: 100%; margin-top: 12px; border: 1px solid #4a4a55;
+    background: #2e2e36; border-radius: 12px; padding: 10px;
+    font-size: 13px; cursor: pointer;
+  }
+  .sheet-close:active { background: #3c3c46; }
+  [hidden] { display: none !important; }
 
   button.power {
     width: 46px; height: 46px; border-radius: 50%;
@@ -264,14 +309,15 @@
     width: 30px; height: 30px; border-radius: 9px;
     display: grid; place-items: center;
     font-weight: 800; font-size: 17px;
+    overflow: hidden;
   }
   .logo.netflix { background: #e50914; color: #fff; font-family: Georgia, serif; }
   .logo.youtube { background: #ff0000; }
   .logo.youtube svg { width: 16px; height: 16px; }
   .logo.disney { background: #113ccf; color: #fff; font-size: 12px; letter-spacing: -.03em; }
-  .logo.prime { background: #00a8e1; color: #071a24; font-size: 9px; letter-spacing: -.04em; }
+  .logo.prime { background: #00a8e1; color: #071a24; font-size: 16px; }
   button.app .label {
-    font-size: 10px; color: var(--muted); letter-spacing: .02em;
+    font-size: 9px; color: var(--muted); letter-spacing: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     max-width: 100%;
   }
@@ -312,12 +358,18 @@
       <div>
         <div class="name" id="deviceName">Mi TV</div>
         <div class="sub" id="statusText">conectando…</div>
+        <div class="sub now" id="nowText"></div>
       </div>
     </div>
     <div class="actions">
       <button class="install" id="scanBtn" aria-label="Buscar TV en la red" title="Buscar TV en la red">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+        </svg>
+      </button>
+      <button class="install" id="sleepBtn" aria-label="Temporizador de apagado" title="Temporizador de apagado">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
         </svg>
       </button>
       <button class="install" id="installBtn" hidden aria-label="Instalar como app" title="Instalar como app">
@@ -332,6 +384,11 @@
       </button>
     </div>
   </header>
+
+  <div class="sleepbar" id="sleepBar" hidden>
+    <span id="sleepText">Apagado en 30:00</span>
+    <button type="button" id="sleepCancel">Cancelar</button>
+  </div>
 
   <div class="wheel-wrap">
     <div class="wheel" id="wheel" aria-label="Rueda de navegación: desliza para moverte, toca el centro para OK">
@@ -399,10 +456,25 @@
       <span class="logo disney">D+</span><span class="label">Disney+</span>
     </button>
     <button class="app" data-app="https://app.primevideo.com" title="Prime Video">
-      <span class="logo prime">prime</span><span class="label">Prime Video</span>
+      <span class="logo prime">P</span><span class="label">Prime Video</span>
     </button>
   </section>
 </main>
+
+<div class="backdrop" id="sheetBackdrop" hidden></div>
+<section class="sheet" id="sleepSheet" role="dialog" aria-modal="true" aria-labelledby="sleepTitle" hidden>
+  <h2 id="sleepTitle">Temporizador de apagado</h2>
+  <p>La TV se apagará sola cuando termine la cuenta atrás.</p>
+  <div class="sheet-grid" id="sleepOptions">
+    <button type="button" data-min="15">15 min</button>
+    <button type="button" data-min="30">30 min</button>
+    <button type="button" data-min="45">45 min</button>
+    <button type="button" data-min="60">1 hora</button>
+    <button type="button" data-min="90">90 min</button>
+    <button type="button" data-min="120">2 horas</button>
+  </div>
+  <button type="button" class="sheet-close" id="sleepClose">Cerrar</button>
+</section>
 
 <div id="toast" role="status"></div>
 
@@ -417,6 +489,14 @@
   const ok = document.getElementById("ok");
   const toastEl = document.getElementById("toast");
   const powerBtn = document.getElementById("powerBtn");
+  const nowText = document.getElementById("nowText");
+  const sleepBar = document.getElementById("sleepBar");
+  const sleepText = document.getElementById("sleepText");
+  const sleepBtn = document.getElementById("sleepBtn");
+  const sleepCancel = document.getElementById("sleepCancel");
+  const sleepSheet = document.getElementById("sleepSheet");
+  const sheetBackdrop = document.getElementById("sheetBackdrop");
+  const sleepClose = document.getElementById("sleepClose");
   const glyphs = {
     DPAD_UP: document.getElementById("g-up"),
     DPAD_DOWN: document.getElementById("g-down"),
@@ -435,6 +515,109 @@
   function buzz(ms) {
     if (navigator.vibrate) navigator.vibrate(ms || 8);
   }
+
+  // -------------------------------------------------------------- apps ---
+  const APP_NAMES = {
+    "com.netflix.ninja": "Netflix",
+    "com.google.android.tv.youtube": "YouTube",
+    "com.google.android.youtube.tv": "YouTube",
+    "com.disney.disneyplus": "Disney+",
+    "com.amazon.amazonvideo.livingroom": "Prime Video",
+    "com.google.android.tvlauncher": "Inicio",
+    "com.google.android.apps.tv.launcherx": "Inicio",
+  };
+
+  function appName(pkg) {
+    if (!pkg) return "";
+    if (APP_NAMES[pkg]) return APP_NAMES[pkg];
+    const tail = pkg.split(".").filter(Boolean).pop();
+    return tail ? tail.charAt(0).toUpperCase() + tail.slice(1) : pkg;
+  }
+
+  // ------------------------------------------------------ temporizador ---
+  let sleepDeadline = null; // instante local en ms; null = sin temporizador
+
+  function clockText(seconds) {
+    const total = Math.max(0, Math.round(seconds));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const two = (value) => String(value).padStart(2, "0");
+    return hours > 0
+      ? `${hours}:${two(minutes)}:${two(secs)}`
+      : `${minutes}:${two(secs)}`;
+  }
+
+  function tickSleep() {
+    if (sleepDeadline === null) {
+      sleepBar.hidden = true;
+      return;
+    }
+    const remaining = (sleepDeadline - Date.now()) / 1000;
+    if (remaining <= 0) {
+      sleepDeadline = null;
+      sleepBar.hidden = true;
+      refreshStatus();
+      return;
+    }
+    sleepBar.hidden = false;
+    sleepText.textContent = "Apagado en " + clockText(remaining);
+  }
+
+  setInterval(tickSleep, 1000);
+
+  function openSleepSheet() {
+    sheetBackdrop.hidden = false;
+    sleepSheet.hidden = false;
+  }
+
+  function closeSleepSheet() {
+    sheetBackdrop.hidden = true;
+    sleepSheet.hidden = true;
+  }
+
+  async function setSleep(minutes) {
+    try {
+      const response = await fetch("/api/sleep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ minutes: minutes }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        toast(data.error || "No se pudo programar el apagado");
+        return;
+      }
+      if (data.sleep_remaining) {
+        sleepDeadline = Date.now() + data.sleep_remaining * 1000;
+        const label =
+          minutes >= 120
+            ? Math.round(minutes / 60) + " horas"
+            : minutes >= 60
+              ? "1 hora"
+              : minutes + " min";
+        toast("La TV se apagará en " + label);
+        tickSleep();
+      } else {
+        sleepDeadline = null;
+        tickSleep();
+        toast("Temporizador cancelado");
+      }
+    } catch (error) {
+      toast("No se pudo contactar con el servidor");
+    }
+  }
+
+  sleepBtn.addEventListener("click", openSleepSheet);
+  sheetBackdrop.addEventListener("click", closeSleepSheet);
+  sleepClose.addEventListener("click", closeSleepSheet);
+  sleepCancel.addEventListener("click", () => setSleep(0));
+  document.querySelectorAll("#sleepOptions button").forEach((button) => {
+    button.addEventListener("click", () => {
+      closeSleepSheet();
+      setSleep(Number(button.dataset.min));
+    });
+  });
 
   let powerBusy = false;
 
@@ -481,6 +664,9 @@
   }
 
   async function launchApp(url) {
+    if (powerBusy) return;
+    powerBusy = true;
+    powerBtn.classList.add("busy");
     try {
       const response = await fetch("/api/app", {
         method: "POST",
@@ -490,9 +676,15 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
         toast(data.error || "No se pudo abrir la app");
+      } else if (data.action === "woke" || data.action === "sent") {
+        toast("TV encendida; abriendo la app…");
       }
     } catch (error) {
       toast("No se pudo contactar con el servidor");
+    } finally {
+      powerBusy = false;
+      powerBtn.classList.remove("busy");
+      refreshStatus();
     }
   }
 
@@ -677,6 +869,10 @@
   };
 
   window.addEventListener("keydown", (event) => {
+    if (!sleepSheet.hidden) {
+      if (event.key === "Escape") closeSleepSheet();
+      return;
+    }
     const tag = (event.target && event.target.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA") return;
 
@@ -700,34 +896,67 @@
 
   // ------------------------------------------------------------ estado ---
   let failures = 0;
+  let lastVolumeKey = null;
+  let sawVolume = false;
+
+  function applyState(state) {
+    if (state.waking) {
+      dot.className = "dot scan";
+      statusText.textContent = "despertando TV…";
+    } else if (state.scanning) {
+      dot.className = "dot scan";
+      statusText.textContent = "buscando TV…";
+    } else if (state.error) {
+      dot.className = "dot err";
+      statusText.textContent = state.error;
+    } else if (!state.connected) {
+      dot.className = "dot off";
+      statusText.textContent = "sin conexión";
+    } else if (state.is_on === false) {
+      dot.className = "dot off";
+      statusText.textContent = "en espera";
+    } else {
+      dot.className = "dot on";
+      statusText.textContent = "conectada";
+    }
+
+    if (state.host) {
+      deviceName.textContent = "Mi TV";
+      deviceName.title = "Mi TV · " + state.host;
+    }
+
+    // App activa y volumen en la cabecera, con aviso al cambiar el volumen.
+    const parts = [];
+    const active = appName(state.current_app);
+    if (active) parts.push(active);
+
+    const volume = state.volume;
+    if (volume && typeof volume.level === "number") {
+      parts.push(volume.muted ? "Silencio" : "Vol " + volume.level);
+      const volumeKey = volume.muted ? "muted" : String(volume.level);
+      if (sawVolume && volumeKey !== lastVolumeKey) {
+        toast(volume.muted ? "Silencio" : "Volumen " + volume.level);
+      }
+      lastVolumeKey = volumeKey;
+      sawVolume = true;
+    }
+    nowText.textContent = parts.join(" · ");
+
+    // Temporizador: el servidor manda los segundos restantes.
+    if (state.sleep_remaining != null && state.sleep_remaining > 0) {
+      sleepDeadline = Date.now() + state.sleep_remaining * 1000;
+    } else if (state.sleep_until == null) {
+      sleepDeadline = null;
+    }
+    tickSleep();
+  }
 
   async function refreshStatus() {
     try {
       const response = await fetch("/api/status", { cache: "no-store" });
       const state = await response.json();
       failures = 0;
-
-      if (state.waking) {
-        dot.className = "dot scan";
-        statusText.textContent = "despertando TV…";
-      } else if (state.scanning) {
-        dot.className = "dot scan";
-        statusText.textContent = "buscando TV…";
-      } else if (state.error) {
-        dot.className = "dot err";
-        statusText.textContent = state.error;
-      } else if (!state.connected) {
-        dot.className = "dot off";
-        statusText.textContent = "sin conexión";
-      } else if (state.is_on === false) {
-        dot.className = "dot off";
-        statusText.textContent = "en espera";
-      } else {
-        dot.className = "dot on";
-        statusText.textContent = "conectada";
-      }
-
-      if (state.host) deviceName.textContent = "Mi TV · " + state.host;
+      applyState(state);
     } catch (error) {
       failures += 1;
       if (failures >= 2) {
@@ -737,8 +966,83 @@
     }
   }
 
+  // Estado en vivo por SSE; si falla, se vuelve al sondeo cada 5 s.
+  let events = null;
+  let pollTimer = null;
+  let eventsRetry = null;
+  let lastEventAt = 0;
+
+  function startPolling() {
+    if (pollTimer === null) pollTimer = setInterval(refreshStatus, 5000);
+  }
+
+  function stopPolling() {
+    if (pollTimer !== null) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function closeEvents() {
+    if (events) {
+      try {
+        events.close();
+      } catch (error) {
+        /* ignore */
+      }
+      events = null;
+    }
+  }
+
+  function scheduleEvents(delay) {
+    if (eventsRetry !== null) return;
+    eventsRetry = setTimeout(() => {
+      eventsRetry = null;
+      openEvents();
+    }, delay);
+  }
+
+  function openEvents() {
+    if (events || !("EventSource" in window)) {
+      startPolling();
+      return;
+    }
+    try {
+      events = new EventSource("/api/events");
+    } catch (error) {
+      startPolling();
+      return;
+    }
+    events.onopen = () => {
+      lastEventAt = Date.now();
+      stopPolling();
+    };
+    events.onmessage = (event) => {
+      lastEventAt = Date.now();
+      try {
+        applyState(JSON.parse(event.data));
+      } catch (error) {
+        /* ignore */
+      }
+    };
+    events.onerror = () => {
+      closeEvents();
+      startPolling();
+      scheduleEvents(20000);
+    };
+  }
+
+  setInterval(() => {
+    if (events && Date.now() - lastEventAt > 35000) {
+      closeEvents();
+      startPolling();
+      scheduleEvents(3000);
+    }
+  }, 10000);
+
   refreshStatus();
-  setInterval(refreshStatus, 5000);
+  openEvents();
+  startPolling();
 
   // --------------------------------------------------------- buscar TV ---
   const scanBtn = document.getElementById("scanBtn");

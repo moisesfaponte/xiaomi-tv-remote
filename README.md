@@ -24,6 +24,10 @@ la línea siguiente.
 
 - **Web responsive**: rueda, volumen, reproducción y apps (Netflix, YouTube,
   Disney+ y Prime Video). Sin instalar nada en el móvil.
+- **Temporizador de apagado**: 15 min a 2 horas, con cuenta atrás en el mando.
+- **Encender y abrir una app en un toque**: con la TV en standby, pulsar
+  Netflix/YouTube/Disney+/Prime la enciende y abre la app.
+- **Volumen y app activa** en la cabecera, y estado en vivo por SSE.
 - **PWA**: se puede añadir a la pantalla de inicio del iPhone o instalar como
   app en Chromium.
 - **Descubrimiento automático**: guarda el nombre y la MAC de la TV, así que si
@@ -120,6 +124,28 @@ tanto el botón parpadea y el resto de teclas quedan bloqueadas.
 
 > Solo funciona desde standby. Si la TV está desenchufada o apagada del todo no
 > hay red, y ningún mando puede encenderla.
+
+### Temporizador de apagado
+
+El botón del reloj (arriba, junto a Power) ofrece **15, 30, 45 min, 1 hora,
+90 min y 2 horas**. Al elegir uno, la cuenta atrás aparece debajo de la
+cabecera y la TV se apaga sola al terminar. **Cancelar** la detiene.
+
+- Apagar la TV con el botón Power también cancela el temporizador.
+- Si cuando llega la hora la TV ya está apagada, no se envía nada (un `POWER`
+  la encendería).
+
+### Encender y abrir una app en un toque
+
+Con la TV en standby, toca **Netflix, YouTube, Disney+ o Prime Video**: el
+mando envía Wake-on-LAN, espera a que la TV arranque y abre la app. Tarda unos
+8–10 segundos y la cabecera muestra “despertando TV…”.
+
+### Volumen, app activa y estado en vivo
+
+La cabecera muestra la app activa y el nivel de volumen, con un aviso cada vez
+que cambia. El estado llega al instante por **SSE** (`/api/events`), con sondeo
+cada 5 segundos como respaldo si el navegador no mantiene la conexión.
 
 ### Instalarlo como app (PWA)
 

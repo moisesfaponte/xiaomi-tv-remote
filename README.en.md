@@ -23,6 +23,10 @@ Screenshot: save the image as docs/screenshot.png and uncomment the line below.
 
 - **Responsive web UI**: wheel, volume, playback and apps (Netflix, YouTube,
   Disney+ and Prime Video). Nothing to install on your phone.
+- **Sleep timer**: 15 minutes to 2 hours, with a countdown on the remote.
+- **Wake and launch in one tap**: with the TV in standby, tapping
+  Netflix/YouTube/Disney+/Prime wakes it and opens the app.
+- **Volume and active app** in the header, plus live state over SSE.
 - **PWA**: add it to your iPhone home screen or install it in Chromium.
 - **Automatic discovery**: it stores the TV's name and MAC address, so if the
   router changes its IP it finds the TV again and reconnects by itself.
@@ -120,6 +124,28 @@ about 8–10 seconds; meanwhile the button pulses and the other keys are blocked
 
 > Standby only. If the TV is unplugged or fully powered off there is no network,
 > and no remote can turn it on.
+
+### Sleep timer
+
+The clock button (top row, next to Power) offers **15, 30, 45 min, 1 hour,
+90 min and 2 hours**. Once selected, the countdown appears below the header and
+the TV turns itself off when it reaches zero. **Cancel** stops it.
+
+- Turning the TV off with the Power button also cancels the timer.
+- If the TV is already off when the timer fires, nothing is sent (a `POWER`
+  would turn it back on).
+
+### Wake and launch an app in one tap
+
+With the TV in standby, tap **Netflix, YouTube, Disney+ or Prime Video**: the
+remote sends Wake-on-LAN, waits for the TV to boot and opens the app. It takes
+about 8–10 seconds and the header shows “despertando TV…”.
+
+### Volume, active app and live state
+
+The header shows the active app and volume level, with a toast whenever the
+volume changes. State is pushed instantly over **SSE** (`/api/events`), falling
+back to polling every 5 seconds if the browser drops the connection.
 
 ### Install as an app (PWA)
 
