@@ -21,8 +21,8 @@ Screenshot: save the image as docs/screenshot.png and uncomment the line below.
 
 ## Features
 
-- **Responsive web UI**: wheel, volume, playback, apps, HDMI input and a text
-  field. Nothing to install on your phone.
+- **Responsive web UI**: wheel, volume, playback and apps (Netflix, YouTube,
+  Disney+ and Prime Video). Nothing to install on your phone.
 - **PWA**: add it to your iPhone home screen or install it in Chromium.
 - **Automatic discovery**: it stores the TV's name and MAC address, so if the
   router changes its IP it finds the TV again and reconnects by itself.
@@ -139,7 +139,7 @@ about 8–10 seconds; meanwhile the button pulses and the other keys are blocked
 ./tv key BACK
 ./tv key POWER
 ./tv key VOLUME_UP
-./tv text "hello"
+./tv text "hello"           # only on TVs that support remote IME
 ./tv app https://www.youtube.com
 ./tv wake                  # wake from standby (Wake-on-LAN)
 ```
@@ -255,6 +255,9 @@ the service behind a proxy with a password.
   traffic to 6466/6467 and that the TV is not on an isolated guest network.
 - **It will not wake from standby**: enable *Wake on LAN* in the TV's Developer
   options, keep the Ethernet cable connected and try `./tv wake`.
+- **Settings, HDMI input or text entry do nothing**: the Mi TV ignores those
+  protocol commands. Use the TV cursor for settings and inputs; the text field
+  has been removed from the web UI. `./tv text` remains for TVs that support it.
 - **The service will not start**: `journalctl -u tvremote -n 50`.
 
 ## Alternative: full screen with scrcpy

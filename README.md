@@ -22,8 +22,8 @@ la línea siguiente.
 
 ## Características
 
-- **Web responsive**: rueda, volumen, reproducción, apps, entrada HDMI y campo
-  de texto. Sin instalar nada en el móvil.
+- **Web responsive**: rueda, volumen, reproducción y apps (Netflix, YouTube,
+  Disney+ y Prime Video). Sin instalar nada en el móvil.
 - **PWA**: se puede añadir a la pantalla de inicio del iPhone o instalar como
   app en Chromium.
 - **Descubrimiento automático**: guarda el nombre y la MAC de la TV, así que si
@@ -139,7 +139,7 @@ tanto el botón parpadea y el resto de teclas quedan bloqueadas.
 ./tv key BACK
 ./tv key POWER
 ./tv key VOLUME_UP
-./tv text "hola"
+./tv text "hola"            # solo en TVs que soportan el IME remoto
 ./tv app https://www.youtube.com
 ./tv wake                  # encender desde standby (Wake-on-LAN)
 ```
@@ -254,6 +254,10 @@ o pon el servicio detrás de un proxy con contraseña.
   salida a 6466/6467 y que la TV no esté en una red de invitados aislada.
 - **No enciende desde standby**: activa *Wake on LAN* en las Opciones de
   desarrollador de la TV, deja el cable Ethernet conectado y prueba `./tv wake`.
+- **Ajustes, entrada HDMI o escribir texto no responden**: la Mi TV ignora esas
+  órdenes del protocolo. Usa el cursor de la TV para ajustes y entradas; el
+  campo de texto se ha quitado de la web. `./tv text` queda para TVs que sí lo
+  soportan.
 - **No arranca el servicio**: `journalctl -u tvremote -n 50`.
 
 ## Alternativa: pantalla completa con scrcpy

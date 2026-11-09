@@ -268,38 +268,13 @@
   .logo.netflix { background: #e50914; color: #fff; font-family: Georgia, serif; }
   .logo.youtube { background: #ff0000; }
   .logo.youtube svg { width: 16px; height: 16px; }
-  .logo.tv { background: #2f6fed; color: #fff; font-size: 9px; font-weight: 700; letter-spacing: .02em; }
-  .logo.gear { background: #3b3b44; }
-  .logo.gear svg { width: 17px; height: 17px; }
+  .logo.disney { background: #113ccf; color: #fff; font-size: 12px; letter-spacing: -.03em; }
+  .logo.prime { background: #00a8e1; color: #071a24; font-size: 9px; letter-spacing: -.04em; }
   button.app .label {
     font-size: 10px; color: var(--muted); letter-spacing: .02em;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     max-width: 100%;
   }
-
-  /* ---------- texto ---------- */
-  .search { display: flex; gap: 8px; }
-  .search input {
-    flex: 1; min-width: 0;
-    background: #19191d;
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    color: var(--txt);
-    padding: 12px 14px;
-    font-size: 14px;
-    outline: none;
-  }
-  .search input:focus { border-color: #5c5c68; box-shadow: 0 0 0 3px rgba(255,255,255,.05); }
-  .search input::placeholder { color: #6c7079; }
-  .search button {
-    border: 1px solid #4a4a55;
-    background: #2e2e36;
-    border-radius: 14px;
-    padding: 0 16px;
-    font-size: 13px; font-weight: 600;
-    cursor: pointer;
-  }
-  .search button:active { transform: scale(.95); background: #3c3c46; }
 
   /* ---------- aviso ---------- */
   #toast {
@@ -420,22 +395,12 @@
         <svg viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>
       </span><span class="label">YouTube</span>
     </button>
-    <button class="app" data-key="TV_INPUT" title="Cambiar de entrada">
-      <span class="logo tv">HDMI</span><span class="label">Entrada</span>
+    <button class="app" data-app="https://www.disneyplus.com" title="Disney+">
+      <span class="logo disney">D+</span><span class="label">Disney+</span>
     </button>
-    <button class="app" data-key="SETTINGS" title="Ajustes">
-      <span class="logo gear">
-        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.4 1z"/>
-        </svg>
-      </span><span class="label">Ajustes</span>
+    <button class="app" data-app="https://app.primevideo.com" title="Prime Video">
+      <span class="logo prime">prime</span><span class="label">Prime Video</span>
     </button>
-  </section>
-
-  <section class="search">
-    <input id="textInput" type="text" placeholder="Escribir en la TV…" maxlength="200" autocomplete="off" enterkeyhint="send">
-    <button id="sendText" type="button">Enviar</button>
   </section>
 </main>
 
@@ -512,25 +477,6 @@
       }
     } catch (error) {
       toast("No se pudo contactar con el servidor");
-    }
-  }
-
-  async function sendText(text) {
-    try {
-      const response = await fetch("/api/text", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) {
-        toast(data.error || "No se pudo enviar el texto");
-        return false;
-      }
-      return true;
-    } catch (error) {
-      toast("No se pudo contactar con el servidor");
-      return false;
     }
   }
 
@@ -710,28 +656,6 @@
   });
   wheel.addEventListener("contextmenu", (event) => event.preventDefault());
 
-  // ------------------------------------------------------------- texto ---
-  const textInput = document.getElementById("textInput");
-  const sendTextButton = document.getElementById("sendText");
-
-  async function submitText() {
-    const value = textInput.value.trim();
-    if (!value) return;
-    if (await sendText(value)) {
-      textInput.value = "";
-      toast("Texto enviado");
-    }
-  }
-
-  sendTextButton.addEventListener("click", submitText);
-  textInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      submitText();
-    }
-    event.stopPropagation();
-  });
-
   // ---------------------------------------------------------- teclado ----
   const KEYBOARD = {
     ArrowUp: "DPAD_UP",
@@ -745,8 +669,6 @@
     h: "HOME",
     p: "POWER",
     m: "MUTE",
-    i: "TV_INPUT",
-    s: "SETTINGS",
     g: "GUIDE",
     b: "BACK",
     "+": "VOLUME_UP",
