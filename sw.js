@@ -1,5 +1,5 @@
 /* Service worker del mando Mi TV: cachea la interfaz, nunca la API. */
-const CACHE = "mitv-remote-v1";
+const CACHE = "mitv-remote-v2";
 const SHELL = [
   "/",
   "/manifest.webmanifest",

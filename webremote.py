@@ -23,8 +23,9 @@ from androidtvremote2 import (
     InvalidAuth,
 )
 
-from discovery import default_subnet, find_tv
+from discovery import REMOTE_PORT, default_subnet, find_tv, port_open
 from tvremote import CERT_FILE, KEY_FILE, load_config, save_config
+from wol import arp_mac, normalize_mac, send_wol
 
 BASE_DIR = Path(__file__).resolve().parent
 HTML_FILE = BASE_DIR / "remote.html"
@@ -34,11 +35,19 @@ ICON_DIR = BASE_DIR / "icons"
 
 MAX_TEXT = 200
 CONNECT_TIMEOUT = 8.0
+QUICK_CONNECT_TIMEOUT = 2.5
 MIN_SCAN_INTERVAL = 8.0
 RETRY_FIRST_DELAY = 5.0
 RETRY_MAX_DELAY = 30.0
 WATCH_INTERVAL = 1.0
 RESUME_GAP = 10.0
+WAKE_TIMEOUT = 45.0
+WAKE_POLL_INTERVAL = 2.0
+POWER_COOLDOWN = 2.0
+
+
+class PowerBusy(Exception):
+    """Ya se está encendiendo o apagando la TV."""
 
 
 def boot_time() -> float:
@@ -58,6 +67,7 @@ class TvController:
         cfg = load_config()
         self.known_name: str | None = cfg.get("name")
         self.known_mac: str | None = cfg.get("mac")
+        self.wol_mac: str | None = normalize_mac(cfg.get("wol_mac")) or arp_mac(host)
 
         self.state: dict = {
             "host": host,
@@ -68,15 +78,19 @@ class TvController:
             "volume": None,
             "error": None,
             "scanning": False,
+            "waking": False,
+            "wol_mac": self.wol_mac,
             "last_scan": None,
         }
 
         self.remote: AndroidTVRemote | None = None
         self._lock: asyncio.Lock | None = None
         self._scan_lock: asyncio.Lock | None = None
+        self._power_lock: asyncio.Lock | None = None
         self._retry_task: asyncio.Task | None = None
         self._watch_task: asyncio.Task | None = None
         self._last_scan = 0.0
+        self._last_power = 0.0
         self._last_beat = boot_time()
 
     # ------------------------------------------------------------ conexión --
@@ -106,11 +120,24 @@ class TvController:
             host=host,
             name=self.known_name,
             mac=self.known_mac,
+            wol_mac=self.wol_mac,
             subnet=self.subnet,
         )
         save_config(cfg)
 
-    async def _connect(self, host: str) -> AndroidTVRemote:
+    def _remember_wol_mac(self, host: str) -> None:
+        """Guarda la MAC de la interfaz de red (Ethernet si la TV va por cable)."""
+        mac = arp_mac(host)
+        if not mac or mac == self.wol_mac:
+            return
+        self.wol_mac = mac
+        self.state["wol_mac"] = mac
+        cfg = load_config()
+        cfg["wol_mac"] = mac
+        save_config(cfg)
+        print(f"[tv] MAC para Wake-on-LAN: {mac}")
+
+    async def _connect(self, host: str, timeout: float = CONNECT_TIMEOUT) -> AndroidTVRemote:
         """Crea y conecta un cliente. Debe llamarse con self._lock tomado."""
         remote = AndroidTVRemote(
             client_name="Kali Web Remote",
@@ -121,7 +148,7 @@ class TvController:
         await remote.async_generate_cert_if_missing()
         self._attach(remote)
         try:
-            await asyncio.wait_for(remote.async_connect(), timeout=CONNECT_TIMEOUT)
+            await asyncio.wait_for(remote.async_connect(), timeout=timeout)
         except Exception:
             remote.disconnect()
             raise
@@ -132,6 +159,7 @@ class TvController:
         self.state["connected"] = True
         self.state["error"] = None
         self._save_host(host)
+        self._remember_wol_mac(host)
         return remote
 
     def _drop(self) -> None:
@@ -142,6 +170,115 @@ class TvController:
                 remote.disconnect()
             except Exception:  # noqa: BLE001
                 pass
+
+    # ------------------------------------------------------ encender/apagar --
+    def _wol_macs(self) -> list[str | None]:
+        """MACs candidatas: ARP (Ethernet), la guardada y la del certificado."""
+        return [self.wol_mac, arp_mac(self.host), self.known_mac]
+
+    async def _try_connect_quiet(self, host: str | None = None) -> bool:
+        """Intenta conectar sin lanzar redescubrimiento ni errores visibles."""
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        async with self._lock:
+            if self.remote is not None and self.state["connected"]:
+                return True
+            if self.remote is not None:
+                self._drop()
+            try:
+                await self._connect(host or self.host, timeout=QUICK_CONNECT_TIMEOUT)
+                return True
+            except InvalidAuth:
+                self.state["error"] = "no emparejado"
+                raise
+            except Exception:  # noqa: BLE001
+                return False
+
+    async def _finish_wake(self) -> bool:
+        """Tras el WoL: si la TV sigue en standby, un POWER la enciende."""
+        for _ in range(6):
+            if self.state["is_on"] is not None:
+                break
+            await asyncio.sleep(0.5)
+        if self.state["is_on"] is False:
+            try:
+                await self.send_key("POWER")
+            except Exception:  # noqa: BLE001
+                pass
+        print(f"[tv] TV disponible en {self.host}")
+        return True
+
+    async def _wait_connected(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if await self._try_connect_quiet():
+                return await self._finish_wake()
+
+            found = await self._discover_once()
+            if found and await self._try_connect_quiet(found["host"]):
+                return await self._finish_wake()
+            await asyncio.sleep(WAKE_POLL_INTERVAL)
+        return False
+
+    async def power_toggle(self) -> dict:
+        """Un solo botón: apaga si está encendida, enciende si está en standby."""
+        if self._power_lock is None:
+            self._power_lock = asyncio.Lock()
+        if self._power_lock.locked():
+            raise PowerBusy("La TV se está encendiendo o apagando")
+
+        async with self._power_lock:
+            now = time.monotonic()
+            if now - self._last_power < POWER_COOLDOWN:
+                raise PowerBusy("Espera un momento antes de volver a pulsar")
+            self._last_power = now
+            self.check_resume()
+
+            # 1) Dice estar conectada: comprobar que la TV sigue en red.
+            #    Al apagarla, la conexión puede seguir "viva" un rato aunque
+            #    la TV ya haya cerrado todos los puertos.
+            if self.remote is not None and self.state["connected"]:
+                if await port_open(self.host, REMOTE_PORT, timeout=0.6):
+                    try:
+                        await self.send_key("POWER")
+                        print("[tv] POWER enviado (encendida -> standby)")
+                        return {"action": "sent", "state": "off"}
+                    except (
+                        CannotConnect,
+                        ConnectionClosed,
+                        OSError,
+                        asyncio.TimeoutError,
+                    ):
+                        self._drop()
+                else:
+                    print("[tv] la TV ya no está en red; se asume apagada")
+                    self._drop()
+
+            # 2) Misma IP: encendida, o standby con la red todavía viva.
+            if await self._try_connect_quiet():
+                await self.send_key("POWER")
+                print("[tv] POWER enviado (standby -> encendida)")
+                return {"action": "sent", "state": "on"}
+
+            # 3) No responde: la damos por apagada y enviamos Wake-on-LAN.
+            self.state["waking"] = True
+            self.state["error"] = None
+            try:
+                sent_to = await asyncio.to_thread(
+                    send_wol, self._wol_macs(), self.host, self.subnet
+                )
+                print(
+                    "[tv] Wake-on-LAN enviado"
+                    + (f" a {', '.join(sent_to)}" if sent_to else " (sin MAC válida)")
+                )
+                if await self._wait_connected(WAKE_TIMEOUT):
+                    return {"action": "woke", "state": "on"}
+                self.state["error"] = (
+                    "no se pudo encender la TV; comprueba que no esté desenchufada"
+                )
+                raise CannotConnect("no se pudo encender la TV")
+            finally:
+                self.state["waking"] = False
 
     # --------------------------------------------------------- suspensión --
     def check_resume(self) -> bool:
@@ -371,8 +508,23 @@ async def api_status(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, **controller.state})
 
 
+async def api_power(request: web.Request) -> web.Response:
+    controller: TvController = request.app["controller"]
+    try:
+        result = await controller.power_toggle()
+    except PowerBusy as exc:
+        return json_error(str(exc), 409)
+    except InvalidAuth:
+        return json_error("No emparejado. Ejecuta ./tv pair en el PC.", 409)
+    except (CannotConnect, ConnectionClosed, OSError, asyncio.TimeoutError) as exc:
+        return json_error(f"No se pudo cambiar el estado de la TV: {exc}", 502)
+    return web.json_response({"ok": True, **result})
+
+
 async def api_key(request: web.Request) -> web.Response:
     controller: TvController = request.app["controller"]
+    if controller.state["waking"]:
+        return json_error("La TV está despertando; espera unos segundos", 409)
     try:
         data = await request.json()
     except json.JSONDecodeError:
@@ -514,6 +666,7 @@ def build_app(controller: TvController) -> web.Application:
     app.router.add_get("/sw.js", service_worker)
     app.router.add_get("/icons/{name}", icon)
     app.router.add_get("/api/status", api_status)
+    app.router.add_post("/api/power", api_power)
     app.router.add_post("/api/key", api_key)
     app.router.add_post("/api/text", api_text)
     app.router.add_post("/api/app", api_app)

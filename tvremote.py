@@ -22,6 +22,7 @@ from androidtvremote2 import (
 )
 
 from discovery import default_subnet, find_tv, identify
+from wol import arp_mac, send_wol
 
 CONFIG_DIR = Path.home() / ".config" / "tvremote"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -253,6 +254,35 @@ async def cmd_discover(args) -> None:
     print("IP actualizada en la configuración.")
 
 
+async def cmd_wake(args) -> None:
+    """Envía un paquete mágico para despertar la TV del standby."""
+    host = get_host(args)
+    subnet = get_subnet(args)
+
+    try:
+        remote, error = await asyncio.wait_for(_try_connect(host), timeout=3.0)
+    except asyncio.TimeoutError:
+        remote, error = None, None
+
+    if remote is not None:
+        remote.disconnect()
+        print(f"La TV ya está encendida en {host}.")
+        return
+    if isinstance(error, InvalidAuth):
+        sys.exit("No emparejado. Ejecuta: tv pair --host <IP>")
+
+    cfg = load_config()
+    macs = [cfg.get("wol_mac"), arp_mac(host), cfg.get("mac")]
+    sent_to = send_wol(macs, host, subnet)
+    if not sent_to:
+        sys.exit("No hay una MAC válida guardada. Ejecuta: tv info")
+
+    print(f"Paquete mágico enviado desde {len(sent_to)} destinos:")
+    for endpoint in sent_to:
+        print(f"  {endpoint}")
+    print("La TV debería encenderse en unos segundos.")
+
+
 # --------------------------------------------------------------------------- #
 # Modo interactivo
 # --------------------------------------------------------------------------- #
@@ -449,6 +479,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("pair", help="Emparejar este PC con la TV")
     sub.add_parser("interactive", help="Abrir el mando interactivo (por defecto)")
     sub.add_parser("discover", help="Buscar la TV en la red y actualizar su IP")
+    sub.add_parser("wake", help="Encender la TV con Wake-on-LAN (desde standby)")
 
     p_key = sub.add_parser("key", help="Enviar una tecla, p.ej. POWER o DPAD_UP")
     p_key.add_argument("name")
@@ -481,6 +512,7 @@ def main() -> None:
                 "app": cmd_app,
                 "info": cmd_info,
                 "discover": cmd_discover,
+                "wake": cmd_wake,
                 "interactive": cmd_interactive,
             }[args.command](args)
         )

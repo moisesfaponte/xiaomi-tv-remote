@@ -29,6 +29,8 @@ la línea siguiente.
 - **Descubrimiento automático**: guarda el nombre y la MAC de la TV, así que si
   el router le cambia la IP, la encuentra sola y se reconecta.
 - **CLI**: `tv key HOME`, `tv text "hola"`, `tv app ...`, mando interactivo.
+- **Encendido remoto**: el mismo botón Power apaga la TV y la enciende desde
+  standby con Wake-on-LAN.
 - **Arranque automático** al encender el PC con un servicio systemd.
 - **Sin nube**: todo va directo por la red local.
 
@@ -98,6 +100,27 @@ Atajos de teclado en el PC: flechas, Enter, Retroceso/Esc, `h` inicio,
 `p` encendido, `m` silencio, `n` Netflix, `y` YouTube, `+`/`-` volumen,
 espacio play/pausa.
 
+### Encender y apagar (Power)
+
+El botón rojo de la esquina superior derecha hace las dos cosas:
+
+- Si la TV está **encendida**, la pone en **standby**.
+- Si está en **standby**, la **enciende** con un paquete de Wake-on-LAN.
+
+Para que funcione desde standby, activa **Wake on LAN** en la TV:
+
+1. Ajustes → Información → pulsa 7 veces **“Compilación”**.
+2. Opciones de desarrollador → **Wake on LAN** → *cuando se conecta a LAN*
+   (y *cuando se conecta a Wi-Fi* si la TV usa Wi-Fi).
+3. Mejor con el **cable Ethernet** conectado.
+
+El mando decide solo qué hacer: no manda un `POWER` después del Wake-on-LAN, así
+que la TV no se vuelve a apagar. Tarda unos 8–10 segundos en despertar; mientras
+tanto el botón parpadea y el resto de teclas quedan bloqueadas.
+
+> Solo funciona desde standby. Si la TV está desenchufada o apagada del todo no
+> hay red, y ningún mando puede encenderla.
+
 ### Instalarlo como app (PWA)
 
 - **PC**: abre `http://127.0.0.1:8765/` en Chromium y pulsa el icono de instalar
@@ -118,6 +141,7 @@ espacio play/pausa.
 ./tv key VOLUME_UP
 ./tv text "hola"
 ./tv app https://www.youtube.com
+./tv wake                  # encender desde standby (Wake-on-LAN)
 ```
 
 ## Si la TV cambia de IP
@@ -201,7 +225,7 @@ Se guarda en `~/.config/tvremote/`:
 
 | Archivo | Contenido |
 | --- | --- |
-| `config.json` | IP, nombre, MAC y subred de la TV |
+| `config.json` | IP, nombre, MAC, MAC de Wake-on-LAN y subred de la TV |
 | `cert.pem`, `key.pem` | Certificado de emparejamiento (no compartir) |
 
 Opciones útiles:
@@ -228,6 +252,8 @@ o pon el servicio detrás de un proxy con contraseña.
 - **No la encuentra escaneando**: comprueba la subred con
   `./tv discover --subnet <CIDR>`; revisa que el firewall del PC permita la
   salida a 6466/6467 y que la TV no esté en una red de invitados aislada.
+- **No enciende desde standby**: activa *Wake on LAN* en las Opciones de
+  desarrollador de la TV, deja el cable Ethernet conectado y prueba `./tv wake`.
 - **No arranca el servicio**: `journalctl -u tvremote -n 50`.
 
 ## Alternativa: pantalla completa con scrcpy
@@ -253,6 +279,7 @@ xiaomi-tv-remote/
 ├── install.sh      # instalador (venv + dependencias + systemd opcional)
 ├── webremote.py    # servidor + API
 ├── discovery.py    # búsqueda de la TV por MAC/nombre
+├── wol.py          # Wake-on-LAN (paquete mágico + ARP)
 ├── remote.html     # interfaz (rueda + botones)
 ├── manifest.webmanifest, sw.js, icons/
 ├── requirements.txt

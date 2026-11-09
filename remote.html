@@ -105,6 +105,14 @@
   }
   button.power:active { transform: scale(.93); filter: brightness(1.15); }
   button.power svg { width: 21px; height: 21px; }
+  button.power.busy {
+    animation: powerPulse .9s ease-in-out infinite;
+    cursor: progress;
+  }
+  @keyframes powerPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+  }
 
   .actions { display: flex; align-items: center; gap: 10px; }
   button.install {
@@ -342,7 +350,7 @@
           <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>
         </svg>
       </button>
-      <button class="power" data-key="POWER" aria-label="Encender o apagar" title="Encender / apagar">
+      <button class="power" id="powerBtn" data-key="POWER" aria-label="Encender o apagar" title="Encender / apagar">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
           <path d="M12 3v9"/><path d="M6.2 6.5a8 8 0 1 0 11.6 0"/>
         </svg>
@@ -443,6 +451,7 @@
   const wheel = document.getElementById("wheel");
   const ok = document.getElementById("ok");
   const toastEl = document.getElementById("toast");
+  const powerBtn = document.getElementById("powerBtn");
   const glyphs = {
     DPAD_UP: document.getElementById("g-up"),
     DPAD_DOWN: document.getElementById("g-down"),
@@ -462,7 +471,35 @@
     if (navigator.vibrate) navigator.vibrate(ms || 8);
   }
 
+  let powerBusy = false;
+
+  async function powerToggle() {
+    if (powerBusy) return;
+    powerBusy = true;
+    powerBtn.classList.add("busy");
+    statusText.textContent = "cambiando estado…";
+    try {
+      const response = await fetch("/api/power", { method: "POST" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        toast(data.error || "No se pudo cambiar el estado de la TV");
+      } else if (data.action === "woke") {
+        toast("TV encendida");
+      }
+    } catch (error) {
+      toast("No se pudo contactar con el servidor");
+    } finally {
+      powerBusy = false;
+      powerBtn.classList.remove("busy");
+      refreshStatus();
+    }
+  }
+
   async function sendKey(key, direction) {
+    if (key === "POWER" && (!direction || direction === "SHORT")) {
+      return powerToggle();
+    }
+    if (powerBusy) return;
     try {
       const response = await fetch("/api/key", {
         method: "POST",
@@ -748,7 +785,10 @@
       const state = await response.json();
       failures = 0;
 
-      if (state.scanning) {
+      if (state.waking) {
+        dot.className = "dot scan";
+        statusText.textContent = "despertando TV…";
+      } else if (state.scanning) {
         dot.className = "dot scan";
         statusText.textContent = "buscando TV…";
       } else if (state.error) {
