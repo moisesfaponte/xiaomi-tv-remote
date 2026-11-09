@@ -14,11 +14,7 @@ Google TV (puertos **6466/6467**), así que debería funcionar con otros
 televisores Android TV / Google TV. No funciona con televisores que no sean
 Android/Google TV (Samsung Tizen, LG webOS, etc.).
 
-<!--
-Captura de pantalla: guarda la imagen en docs/screenshot.png y descomenta
-la línea siguiente.
 ![Mando web](docs/screenshot.png)
--->
 
 ## Características
 

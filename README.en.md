@@ -14,10 +14,7 @@ Google TV app (ports **6466/6467**), so it should work with other Android TV /
 Google TV devices. It does not work with non-Android TVs (Samsung Tizen,
 LG webOS, etc.).
 
-<!--
-Screenshot: save the image as docs/screenshot.png and uncomment the line below.
 ![Web remote](docs/screenshot.png)
--->
 
 ## Features
 
